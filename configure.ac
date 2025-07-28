@@ -233,7 +233,7 @@ AC_SUBST(X11_INC)
 AC_SUBST(X11_LIB)
 
 dnl == Check for SDL
-SDL_VERSION="1.2.4"
+SDL_VERSION="1.2.15"
 AM_PATH_SDL($SDL_VERSION,[HAVESDL="yes"],[HAVESDL="no"])
 if test "$SVGAHEXEN" = "false";then
     AC_DEFINE(SDLHEXEN, 1, [Define if HHexen depends on SDL])
