@@ -365,7 +365,7 @@ static int xlatekey (SDL_keysym *key)
 		cb[2] = 1;
 		--weapon_slot;
 		if(weapon_slot == 0)
-			weapon_slot = 7;
+			weapon_slot = 4;
 		event.type = ev_keydown;
 		switch(weapon_slot) {
 			case 1: event.data1 = SDLK_1;break;
@@ -388,7 +388,7 @@ static int xlatekey (SDL_keysym *key)
 	if(keystate[SDLK_BACKSPACE] && keystate[SDLK_RIGHT]) {
 		cb[3] = 1;
 		++weapon_slot;
-		if(weapon_slot == 8)
+		if(weapon_slot == 5)
 			weapon_slot = 1;
 		event.type = ev_keydown;
 		switch(weapon_slot) {
