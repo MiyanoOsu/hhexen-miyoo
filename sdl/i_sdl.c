@@ -269,7 +269,7 @@ void I_InitGraphics(void)
 		return;
 	}
 
-	if (SDL_InitSubSystem(SDL_INIT_VIDEO) < 0) {
+	if (SDL_Init(SDL_INIT_VIDEO) < 0) {
 		I_Error("Couldn't init video: %s", SDL_GetError());
 	}
 
