@@ -26,7 +26,7 @@ extern int usemouse, usejoystick;
 
 static boolean vid_initialized = false;
 
-static SDL_Surface* sdl_screen;
+static SDL_Surface* sdl_screen, * buf_screen;
 static int grabMouse;
 
 
@@ -83,7 +83,7 @@ void I_SetPalette(byte *palette)
 		c->g = gammatable[usegamma][*palette++];
 		c->b = gammatable[usegamma][*palette++];
 	}
-	SDL_SetColors (sdl_screen, cmap, 0, 256);
+	SDL_SetColors (buf_screen, cmap, 0, 256);
 }
 
 /*
@@ -123,13 +123,13 @@ static void CopyRectToScreen(int x, int y, int w, int h)
 	rects[numrects].h = h;
 	numrects++;
 
-	if (SDL_MUSTLOCK(sdl_screen))
-		SDL_LockSurface(sdl_screen);
+	if (SDL_MUSTLOCK(buf_screen))
+		SDL_LockSurface(buf_screen);
 
 	src = screen + y*SCREENWIDTH + x;
-	dst = sdl_screen->pixels + y*sdl_screen->pitch + x;
+	dst = buf_screen->pixels + y*buf_screen->pitch + x;
 
-	if (sdl_screen->pitch == SCREENWIDTH && w == SCREENWIDTH)
+	if (buf_screen->pitch == SCREENWIDTH && w == SCREENWIDTH)
 	{
 		memcpy(dst, src, w * h);
 	}
@@ -139,12 +139,28 @@ static void CopyRectToScreen(int x, int y, int w, int h)
 		{
 			memcpy(dst, src, w);
 			src += SCREENWIDTH;
-			dst += sdl_screen->pitch;
+			dst += buf_screen->pitch;
 		}
 	}
 
-	if (SDL_MUSTLOCK(sdl_screen))
-		SDL_UnlockSurface(sdl_screen);
+	if (SDL_MUSTLOCK(buf_screen))
+		SDL_UnlockSurface(buf_screen);
+}
+
+void upscale320x200to320x240(SDL_Surface* src, SDL_Surface* dst)
+{
+	SDL_Color* pal = src->format->palette->colors;
+	uint8_t* spix = (uint8_t*)src->pixels;
+	uint16_t* dpix = (uint16_t*)dst->pixels;
+
+	for (int y = 0; y < 240; y++) {
+		int src_y = (y * 200) / 240;
+		for (int x = 0; x < 320; x++) {
+			SDL_Color c = pal[spix[src_y * src->pitch + x]];
+			uint16_t rgb565 = ((c.r >> 3) << 11) | ((c.g >> 2) << 5) | (c.b >> 3);
+			dpix[y * (dst->pitch / 2) + x] = rgb565;
+		}
+	}
 }
 
 void I_Update (void)
@@ -168,7 +184,7 @@ void I_Update (void)
 		}
 		else
 		{
-			dest = (byte *)sdl_screen->pixels;
+			dest = (byte *)buf_screen->pixels;
 		}
 		tics = ticcount - lasttic;
 		lasttic = ticcount;
@@ -225,7 +241,11 @@ void I_Update (void)
 	}
 
 	if (numrects > 0)
-		SDL_UpdateRects(sdl_screen, numrects, rects);
+		SDL_UpdateRects(buf_screen, numrects, rects);
+
+	upscale320x200to320x240(buf_screen, sdl_screen);
+
+	SDL_Flip(sdl_screen);
 
 	numrects = 0;
 	prevupdatestate[frame] = 0;
@@ -241,7 +261,7 @@ void I_Update (void)
 void I_InitGraphics(void)
 {
 	char text[20];
-	Uint32 flags = DEFAULT_FLAGS;
+	Uint32 flags = SDL_SWSURFACE;
 
 	if (M_CheckParm("-novideo"))	// if true, stay in text mode for debugging
 	{
@@ -258,11 +278,18 @@ void I_InitGraphics(void)
 	if (M_CheckParm("-w") || M_CheckParm("--windowed"))
 		flags &= ~SDL_FULLSCREEN;
 
-	sdl_screen = SDL_SetVideoMode(SCREENWIDTH, SCREENHEIGHT, 8, flags);
+	sdl_screen = SDL_SetVideoMode(320, 240, 16, flags);
 
 	if (sdl_screen == NULL)
 	{
 		I_Error("Couldn't set video mode %dx%d: %s\n",
+			SCREENWIDTH, SCREENHEIGHT, SDL_GetError());
+	}
+
+	buf_screen = SDL_CreateRGBSurface(flags, SCREENWIDTH, SCREENHEIGHT, 8, 0,0,0,0);
+	if (buf_screen == NULL)
+	{
+		I_Error("Couldn't create RGB Surface %dx%d: %s\n",
 			SCREENWIDTH, SCREENHEIGHT, SDL_GetError());
 	}
 
@@ -304,6 +331,132 @@ void I_ShutdownGraphics(void)
 //
 static int xlatekey (SDL_keysym *key)
 {
+	Uint8* keystate = SDL_GetKeyState(NULL);
+	// combo keys
+	static Uint8 cb[8] = {0};
+	event_t event;
+
+	// move selection in inventory
+	if(keystate[SDLK_TAB] && keystate[SDLK_LEFT]) {
+		cb[0] = 1;
+		event.type = ev_keydown;
+		event.data1 = KEY_LEFTBRACKET;
+		H2_PostEvent(&event);
+	}else if (cb[0]==1) {
+		cb[0] = 0;
+		event.type = ev_keyup;
+		event.data1 = KEY_LEFTBRACKET;
+		H2_PostEvent(&event);
+	}
+	if(keystate[SDLK_TAB] && keystate[SDLK_RIGHT]) {
+		cb[1] = 1;
+		event.type = ev_keydown;
+		event.data1 = KEY_RIGHTBRACKET;
+		H2_PostEvent(&event);
+	}else if (cb[1]==1) {
+		cb[1] = 0;
+		event.type = ev_keyup;
+		event.data1 = KEY_RIGHTBRACKET;
+		H2_PostEvent(&event);
+	}
+	static Uint8 weapon_slot = 2;
+	// change weapon
+	if(keystate[SDLK_BACKSPACE] && keystate[SDLK_LEFT]) {
+		cb[2] = 1;
+		--weapon_slot;
+		if(weapon_slot == 0)
+			weapon_slot = 7;
+		event.type = ev_keydown;
+		switch(weapon_slot) {
+			case 1: event.data1 = SDLK_1;break;
+			case 2:	event.data1 = SDLK_2;break;
+			case 3:	event.data1 = SDLK_3;break;
+			case 4: event.data1 = SDLK_4;break;
+		}
+		H2_PostEvent(&event);
+	} else if (cb[2]==1) {
+		cb[2] = 0;
+		event.type = ev_keyup;
+		switch(weapon_slot) {
+			case 1: event.data1 = SDLK_1;break;
+			case 2:	event.data1 = SDLK_2;break;
+			case 3:	event.data1 = SDLK_3;break;
+			case 4: event.data1 = SDLK_4;break;
+		}
+		H2_PostEvent(&event);
+	}
+	if(keystate[SDLK_BACKSPACE] && keystate[SDLK_RIGHT]) {
+		cb[3] = 1;
+		++weapon_slot;
+		if(weapon_slot == 8)
+			weapon_slot = 1;
+		event.type = ev_keydown;
+		switch(weapon_slot) {
+			case 1: event.data1 = SDLK_1;break;
+			case 2:	event.data1 = SDLK_2;break;
+			case 3:	event.data1 = SDLK_3;break;
+			case 4: event.data1 = SDLK_4;break;
+		}
+		H2_PostEvent(&event);
+	} else if (cb[3]==1) {
+		cb[3] = 0;
+		event.type = ev_keyup;
+		switch(weapon_slot) {
+			case 1: event.data1 = SDLK_1;break;
+			case 2:	event.data1 = SDLK_2;break;
+			case 3:	event.data1 = SDLK_3;break;
+			case 4: event.data1 = SDLK_4;break;
+		}
+		H2_PostEvent(&event);
+	}
+
+	//look up or down
+	if(keystate[SDLK_BACKSPACE] && keystate[SDLK_UP]) {
+		cb[4] = 1;
+		event.type = ev_keydown;
+		event.data1 = KEY_PGDN;
+		H2_PostEvent(&event);
+	} else if (cb[4]==1) {
+		cb[4] = 0;
+		event.type = ev_keyup;
+		event.data1 = KEY_PGDN;
+		H2_PostEvent(&event);
+	}
+	if(keystate[SDLK_BACKSPACE] && keystate[SDLK_DOWN]) {
+		cb[5] = 1;
+		event.type = ev_keydown;
+		event.data1 = KEY_DEL;
+		H2_PostEvent(&event);
+	} else if (cb[5]==1) {
+		cb[5] = 0;
+		event.type = ev_keyup;
+		event.data1 = KEY_DEL;
+		H2_PostEvent(&event);
+	}
+
+	// fly up or down
+	if(keystate[SDLK_TAB] && keystate[SDLK_UP]) {
+		cb[6] = 1;
+		event.type = ev_keydown;
+		event.data1 = KEY_PGUP;
+		H2_PostEvent(&event);
+	} else if (cb[6]==1) {
+		cb[6] = 0;
+		event.type = ev_keyup;
+		event.data1 = KEY_PGUP;
+		H2_PostEvent(&event);
+	}
+	if(keystate[SDLK_TAB] && keystate[SDLK_DOWN]) {
+		cb[7] = 1;
+		event.type = ev_keydown;
+		event.data1 = KEY_INS;
+		H2_PostEvent(&event);
+	} else if (cb[7]==1) {
+		cb[7] = 0;
+		event.type = ev_keyup;
+		event.data1 = KEY_INS;
+		H2_PostEvent(&event);
+	}
 	switch (key->sym)
 	{
 	// S.A.
@@ -324,6 +477,7 @@ static int xlatekey (SDL_keysym *key)
 	case SDLK_UP:		return KEY_UPARROW;
 	case SDLK_ESCAPE:	return KEY_ESCAPE;
 	case SDLK_RETURN:	return KEY_ENTER;
+	case SDLK_RCTRL:	return KEY_TAB;
 
 	case SDLK_F1:		return KEY_F1;
 	case SDLK_F2:		return KEY_F2;
@@ -348,13 +502,13 @@ static int xlatekey (SDL_keysym *key)
 	case SDLK_PAUSE:	return KEY_PAUSE;
 	case SDLK_EQUALS:	return KEY_EQUALS;
 	case SDLK_MINUS:	return KEY_MINUS;
+	case SDLK_TAB:		return KEY_BACKSLASH;
 
 	case SDLK_LSHIFT:
 	case SDLK_RSHIFT:
 		return KEY_RSHIFT;
 
 	case SDLK_LCTRL:
-	case SDLK_RCTRL:
 		return KEY_RCTRL;
 
 	case SDLK_LALT:
@@ -488,12 +642,12 @@ void I_GetEvent(SDL_Event *Event)
 
 	case SDL_MOUSEMOTION:
 		/* Ignore mouse warp events */
-		if ( (Event->motion.x != sdl_screen->w/2) ||
-		     (Event->motion.y != sdl_screen->h/2) )
+		if ( (Event->motion.x != buf_screen->w/2) ||
+		     (Event->motion.y != buf_screen->h/2) )
 		{
 		/* Warp the mouse back to the center */
 			if (grabMouse) {
-				SDL_WarpMouse(sdl_screen->w/2, sdl_screen->h/2);
+				SDL_WarpMouse(buf_screen->w/2, buf_screen->h/2);
 			}
 			event.type = ev_mouse;
 			event.data1 = 0	| (Event->motion.state & SDL_BUTTON(1) ? 1 : 0)

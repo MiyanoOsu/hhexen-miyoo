@@ -473,8 +473,8 @@ default_t defaults[] =
 	{ "key_fire",		&key_fire,		KEY_RCTRL,	0, 254 },
 	{ "key_use",		&key_use,		' ',		0, 254 },
 	{ "key_strafe",		&key_strafe,		KEY_RALT,	0, 254 },
-	{ "key_speed",		&key_speed,		KEY_RSHIFT,	0, 254 },
-	{ "key_jump",		&key_jump,		'/',		0, 254 },
+	{ "key_speed",		&key_speed,		'/',	0, 254 },
+	{ "key_jump",		&key_jump,		KEY_RSHIFT,		0, 254 },
 
 	{ "use_mouse",		&usemouse,		1,	0, 1 },
 	{ "mouseb_fire",	&mousebfire,		0,	-1, 2 },
