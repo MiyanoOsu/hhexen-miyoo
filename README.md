@@ -34,7 +34,12 @@ docker pull miyoocfw/toolchain-shared-uclibc:latest
 docker run --volume ./:/src/ -it miyoocfw/toolchain-shared-uclibc:latest
 cd src
 ./configure --disable-gl --enable-fullscreen --host=arm-linux CC=arm-linux-gcc
+
+# build game in fullscreen mode type
 make -j $(nproc)
+
+# build game in original screen size 320x200 type
+make CFLAGS="-DORG_SCREEN" -j$(nproc)
 ~~~
 
 # WAD file info:

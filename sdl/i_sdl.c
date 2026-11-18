@@ -26,7 +26,12 @@ extern int usemouse, usejoystick;
 
 static boolean vid_initialized = false;
 
-static SDL_Surface* sdl_screen, * buf_screen;
+static SDL_Surface* sdl_screen
+#ifndef ORG_SCREEN
+, * buf_screen
+#endif
+;
+
 static int grabMouse;
 
 
@@ -83,7 +88,11 @@ void I_SetPalette(byte *palette)
 		c->g = gammatable[usegamma][*palette++];
 		c->b = gammatable[usegamma][*palette++];
 	}
+#ifndef ORG_SCREEN
 	SDL_SetColors (buf_screen, cmap, 0, 256);
+#else
+	SDL_SetColors (sdl_screen, cmap, 0, 256);
+#endif
 }
 
 /*
@@ -110,6 +119,24 @@ static int numrects = 0;
 
 static int frame = 0;
 static int prevupdatestate[2];
+
+#ifndef ORG_SCREEN
+
+void upscale320x200to320x240(SDL_Surface* src, SDL_Surface* dst)
+{
+	SDL_Color* pal = src->format->palette->colors;
+	uint8_t* spix = (uint8_t*)src->pixels;
+	uint16_t* dpix = (uint16_t*)dst->pixels;
+
+	for (int y = 0; y < 240; y++) {
+		int src_y = (y * 200) / 240;
+		for (int x = 0; x < 320; x++) {
+			SDL_Color c = pal[spix[src_y * src->pitch + x]];
+			uint16_t rgb565 = ((c.r >> 3) << 11) | ((c.g >> 2) << 5) | (c.b >> 3);
+			dpix[y * (dst->pitch / 2) + x] = rgb565;
+		}
+	}
+}
 
 static void CopyRectToScreen(int x, int y, int w, int h)
 {
@@ -146,22 +173,44 @@ static void CopyRectToScreen(int x, int y, int w, int h)
 	if (SDL_MUSTLOCK(buf_screen))
 		SDL_UnlockSurface(buf_screen);
 }
+#else
 
-void upscale320x200to320x240(SDL_Surface* src, SDL_Surface* dst)
+static void CopyRectToScreen(int x, int y, int w, int h)
 {
-	SDL_Color* pal = src->format->palette->colors;
-	uint8_t* spix = (uint8_t*)src->pixels;
-	uint16_t* dpix = (uint16_t*)dst->pixels;
+	int i;
+	const byte *src;
+	byte *dst;
 
-	for (int y = 0; y < 240; y++) {
-		int src_y = (y * 200) / 240;
-		for (int x = 0; x < 320; x++) {
-			SDL_Color c = pal[spix[src_y * src->pitch + x]];
-			uint16_t rgb565 = ((c.r >> 3) << 11) | ((c.g >> 2) << 5) | (c.b >> 3);
-			dpix[y * (dst->pitch / 2) + x] = rgb565;
+	rects[numrects].x = x;
+	rects[numrects].y = y;
+	rects[numrects].w = w;
+	rects[numrects].h = h;
+	numrects++;
+
+	if (SDL_MUSTLOCK(sdl_screen))
+		SDL_LockSurface(sdl_screen);
+
+	src = screen + y*SCREENWIDTH + x;
+	dst = sdl_screen->pixels + y*sdl_screen->pitch + x;
+
+	if (sdl_screen->pitch == SCREENWIDTH && w == SCREENWIDTH)
+	{
+		memcpy(dst, src, w * h);
+	}
+	else
+	{
+		for (i = 0; i < h; i++)
+		{
+			memcpy(dst, src, w);
+			src += SCREENWIDTH;
+			dst += sdl_screen->pitch;
 		}
 	}
+
+	if (SDL_MUSTLOCK(sdl_screen))
+		SDL_UnlockSurface(sdl_screen);
 }
+#endif
 
 void I_Update (void)
 {
@@ -184,7 +233,11 @@ void I_Update (void)
 		}
 		else
 		{
+#ifndef ORG_SCREEN
 			dest = (byte *)buf_screen->pixels;
+#else
+			dest = (byte *)sdl_screen->pixels;
+#endif
 		}
 		tics = ticcount - lasttic;
 		lasttic = ticcount;
@@ -240,10 +293,15 @@ void I_Update (void)
 		UpdateState &= ~I_MESSAGES;
 	}
 
+#ifndef ORG_SCREEN
 	if (numrects > 0)
 		SDL_UpdateRects(buf_screen, numrects, rects);
 
 	upscale320x200to320x240(buf_screen, sdl_screen);
+#else
+	if (numrects > 0)
+		SDL_UpdateRects(sdl_screen, numrects, rects);
+#endif
 
 	SDL_Flip(sdl_screen);
 
@@ -278,21 +336,25 @@ void I_InitGraphics(void)
 	if (M_CheckParm("-w") || M_CheckParm("--windowed"))
 		flags &= ~SDL_FULLSCREEN;
 
+#ifndef ORG_SCREEN
 	sdl_screen = SDL_SetVideoMode(320, 240, 16, flags);
+#else
+	sdl_screen = SDL_SetVideoMode(SCREENWIDTH, SCREENHEIGHT, 8, flags);
+#endif
 
 	if (sdl_screen == NULL)
 	{
 		I_Error("Couldn't set video mode %dx%d: %s\n",
 			SCREENWIDTH, SCREENHEIGHT, SDL_GetError());
 	}
-
+#ifndef ORG_SCREEN
 	buf_screen = SDL_CreateRGBSurface(flags, SCREENWIDTH, SCREENHEIGHT, 8, 0,0,0,0);
 	if (buf_screen == NULL)
 	{
 		I_Error("Couldn't create RGB Surface %dx%d: %s\n",
 			SCREENWIDTH, SCREENHEIGHT, SDL_GetError());
 	}
-
+#endif
 	vid_initialized = true;
 
 	// Only grab if we want to
@@ -639,7 +701,7 @@ void I_GetEvent(SDL_Event *Event)
 		event.data2 = event.data3 = 0;
 		H2_PostEvent(&event);
 		break;
-
+#ifndef ORG_SCREEN
 	case SDL_MOUSEMOTION:
 		/* Ignore mouse warp events */
 		if ( (Event->motion.x != buf_screen->w/2) ||
@@ -658,7 +720,26 @@ void I_GetEvent(SDL_Event *Event)
 			H2_PostEvent(&event);
 		}
 		break;
-
+#else
+	case SDL_MOUSEMOTION:
+		/* Ignore mouse warp events */
+		if ( (Event->motion.x != sdl_screen->w/2) ||
+		     (Event->motion.y != sdl_screen->h/2) )
+		{
+		/* Warp the mouse back to the center */
+			if (grabMouse) {
+				SDL_WarpMouse(sdl_screen->w/2, sdl_screen->h/2);
+			}
+			event.type = ev_mouse;
+			event.data1 = 0	| (Event->motion.state & SDL_BUTTON(1) ? 1 : 0)
+					| (Event->motion.state & SDL_BUTTON(2) ? 2 : 0)
+					| (Event->motion.state & SDL_BUTTON(3) ? 4 : 0);
+			event.data2 = Event->motion.xrel << 3;
+			event.data3 = -Event->motion.yrel << 3;
+			H2_PostEvent(&event);
+		}
+		break;
+#endif
 	case SDL_QUIT:
 		I_Quit();
 	}
