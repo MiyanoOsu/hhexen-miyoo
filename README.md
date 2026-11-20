@@ -28,12 +28,14 @@ R + Down: look down
 You need docker, debian linux or arch linux
 ~~~
 # if you first time build code, run this command to set up toolchain
-docker pull miyoocfw/toolchain-shared-uclibc:latest
+docker pull miyoocfw/toolchain-static-musl:latest
 
 # to compile
-docker run --volume ./:/src/ -it miyoocfw/toolchain-shared-uclibc:latest
+docker run --volume ./:/src/ -it miyoocfw/toolchain-static-musl:latest
 cd src
-./configure --disable-gl --enable-fullscreen --host=arm-linux CC=arm-linux-gcc
+
+./autogen.sh
+./configure --disable-gl --enable-fullscreen --host=arm-linux CC=arm-linux-gcc --with-audio=sdlmixer
 
 # build game in fullscreen mode type
 make -j $(nproc)
@@ -58,3 +60,8 @@ Demo wad 1.0 (from PC shareware hexndemo.zip):
 
 Demo wad 1.1 (from Macintosh shareware MacHexenDemo.hqx):
   925f9f5000e17dc84b0a6a3bed3a6f31  hexen.wad (13,596,228 bytes)
+
+# Soundtracks:
+
+When configured `--with-audio=sdlmixer` it adds the ability of midi music playback from a WAD file or custom music tracks in an order OGG, MP3, MID (with midi it will look for timidity.cfg file), 
+place these music tracks in `$HOME/.hheretic/music` directory. `$HOME` is /mnt in miyooCFW.
