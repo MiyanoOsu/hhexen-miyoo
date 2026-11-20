@@ -220,6 +220,7 @@ if test "$SND_MODULE" = "oss" || test "$SND_MODULE" = "alsa";then
 fi
 
 dnl == Check ALSA
+PKG_PROG_PKG_CONFIG
 if test "$SND_MODULE" = "alsa";then
 	have_alsa=no
 	PKG_CHECK_MODULES([ALSA], [alsa >= 1], AC_CHECK_LIB(asound, snd_pcm_open, [have_alsa=yes]), [true])
@@ -243,13 +244,13 @@ if test "$SVGAHEXEN" = "false";then
 fi
 
 saved_libs="$LIBS"
-AC_CHECK_LIB(SDL_mixer, Mix_LoadMUS, [HAVE_SDLMIXER="yes"], [HAVE_SDLMIXER="no"], [$SDL_LIBS])
+PKG_CHECK_MODULES([SDLMIXER], [SDL_mixer], [HAVE_SDLMIXER="yes"], [HAVE_SDLMIXER="no"])
 LIBS="$saved_libs"
 if test "$SND_MODULE" = "sdlmixer";then
   if test $HAVE_SDLMIXER = "no";then
 	AC_MSG_ERROR([*** SDL_mixer not found!])
   else
-	SDL_LIBS="$SDL_LIBS -lSDL_mixer"
+	SDL_LIBS="$SDL_LIBS $SDLMIXER_LIBS"
   fi
 fi
 
